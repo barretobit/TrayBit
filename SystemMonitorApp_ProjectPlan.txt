@@ -1,0 +1,377 @@
+================================================================================
+  PROJECT PLAN: Windows System Monitor Tray App (C# / WinForms)
+  Version: 1.0
+  Author context: Solo developer, C# / WinForms experience (Windows Forms CRM)
+================================================================================
+
+--------------------------------------------------------------------------------
+OVERVIEW
+--------------------------------------------------------------------------------
+
+Build a lightweight Windows system tray application in C# (.NET Framework or
+.NET 8+) that displays real-time system metrics and provides quick-access
+controls — all accessible from the system tray / taskbar area without a
+permanent main window.
+
+The app should feel like a personal, always-running utility: minimal UI
+footprint, no clutter, fast updates.
+
+--------------------------------------------------------------------------------
+GOALS
+--------------------------------------------------------------------------------
+
+1. Show CPU Usage updated every 1 second.
+2. Show CPU Temperature.
+3. Show GPU Temperature (optional, gracefully hidden if no GPU detected).
+4. Show Battery Level and charging status (optional, hidden on desktops).
+5. Allow switching between Windows Power Plans from the tray.
+6. Provide a toggle to enable/disable a "keep-awake" (Caffeine) feature that
+   prevents the screen from turning off or the system from sleeping.
+
+--------------------------------------------------------------------------------
+TECHNOLOGY STACK
+--------------------------------------------------------------------------------
+
+Language       : C# (.NET 8 recommended; .NET Framework 4.8.1 also viable if
+                 keeping consistency with existing WinForms projects)
+UI Framework   : Windows Forms (WinForms)
+                 - Uses NotifyIcon for the tray icon
+                 - Uses a custom borderless Form as a popup panel
+NuGet Packages :
+  - LibreHardwareMonitorLib
+    Purpose: Reading CPU temperature, GPU temperature, fan speeds.
+    NuGet: https://www.nuget.org/packages/LibreHardwareMonitorLib
+    Note: Requires the app to run as Administrator for hardware sensor access.
+No other external dependencies are strictly required.
+
+Built-in APIs used:
+  - System.Diagnostics.PerformanceCounter  → CPU usage %
+  - System.Management (WMI)               → Power plan enumeration/switching
+  - Microsoft.Win32.SystemInformation     → Battery level and power status
+  - P/Invoke: SetThreadExecutionState     → Caffeine / keep-awake feature
+  - P/Invoke: PowerSetActiveScheme        → Power plan activation
+
+--------------------------------------------------------------------------------
+PROJECT STRUCTURE
+--------------------------------------------------------------------------------
+
+SystemMonitorApp/
+├── SystemMonitorApp.csproj
+├── Program.cs                  ← Entry point; no main form shown on startup
+├── App.manifest                ← requireAdministrator elevation manifest
+├── Resources/
+│   ├── icon_normal.ico         ← Default tray icon
+│   ├── icon_caffeine.ico       ← Tray icon when caffeine mode is ON
+├── Core/
+│   ├── HardwareMonitor.cs      ← LibreHardwareMonitor wrapper (CPU/GPU temps)
+│   ├── CpuUsageMonitor.cs      ← PerformanceCounter wrapper for CPU %
+│   ├── BatteryMonitor.cs       ← Battery level + AC/DC status
+│   ├── PowerPlanManager.cs     ← Enumerate and switch Windows power plans
+│   └── CaffeineManager.cs      ← SetThreadExecutionState keep-awake toggle
+├── UI/
+│   ├── TrayManager.cs          ← NotifyIcon setup and lifecycle
+│   ├── PopupPanel.cs           ← Borderless Form shown on tray icon click
+│   └── PopupPanel.Designer.cs
+└── Helpers/
+    └── NativeMethods.cs        ← P/Invoke declarations
+
+--------------------------------------------------------------------------------
+FEATURE SPECIFICATIONS
+--------------------------------------------------------------------------------
+
+## 1. CPU USAGE
+- Source: System.Diagnostics.PerformanceCounter("Processor", "% Processor Time", "_Total")
+- Update rate: every 1 second via System.Timers.Timer
+- Display: percentage value, e.g. "CPU: 34%"
+- Optionally show a small color indicator: green < 50%, orange < 80%, red >= 80%
+
+## 2. CPU TEMPERATURE
+- Source: LibreHardwareMonitorLib
+  - Open a Computer object with CPUEnabled = true
+  - Find sensor where SensorType == SensorType.Temperature and Name == "CPU Package"
+    (or "Core Average" depending on vendor)
+- Update rate: every 1 second (same timer as CPU usage)
+- Display: degrees Celsius, e.g. "CPU Temp: 62°C"
+- If sensor not available (rare), show "CPU Temp: N/A"
+- IMPORTANT: LibreHardwareMonitor requires Administrator rights. The app must
+  declare requireAdministrator in its manifest.
+
+## 3. GPU TEMPERATURE (Optional)
+- Source: LibreHardwareMonitorLib
+  - Open a Computer object with GPUEnabled = true
+  - Find sensor where SensorType == SensorType.Temperature
+  - Typically the first GPU found (index 0) if multiple exist
+- Display: "GPU Temp: 71°C" or hidden entirely if no GPU sensor is found
+- Detection: wrap in a null check — if no GPU sensor is detected at startup,
+  hide the GPU row from the popup panel permanently for that session.
+
+## 4. BATTERY LEVEL (Optional)
+- Source: System.Windows.Forms.SystemInformation.PowerStatus
+  - BatteryLifePercent → 0.0f to 1.0f (multiply by 100 for %)
+  - PowerLineStatus → Offline (battery), Online (plugged in), Unknown
+- Display: "Battery: 87% (Charging)" or "Battery: 54%"
+- Detection: If BatteryLifePercent returns 255 (0xFF), no battery is present
+  (desktop). In that case, hide the battery row from the popup panel.
+
+## 5. POWER PLAN SWITCHER
+- Source: WMI via System.Management
+  - Query: SELECT * FROM Win32_PowerPlan WHERE IsActive = TRUE (namespace: root\cimv2\power)
+  - All plans: SELECT * FROM Win32_PowerPlan (same namespace)
+- Switching: P/Invoke PowerSetActiveScheme(IntPtr, ref Guid) from powrprof.dll
+- UI: A sub-menu in the tray context menu listing all available power plans.
+  The currently active plan is checkmarked. Clicking another activates it.
+- Common plans to expect:
+    - Balanced         (GUID: 381b4222-f694-41f0-9685-ff5bb260df2e)
+    - High Performance (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c)
+    - Power Saver      (GUID: a1841308-3541-4fab-bc81-f71556f20b4a)
+  Custom plans will also appear dynamically.
+
+## 6. CAFFEINE (KEEP-AWAKE TOGGLE)
+- Source: P/Invoke SetThreadExecutionState from kernel32.dll
+- When ON:  Call SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED)
+  This tells Windows the display and system are in use — prevents sleep and
+  screen timeout.
+- When OFF: Call SetThreadExecutionState(ES_CONTINUOUS)
+  This resets to default Windows power behavior.
+- UI:
+  - A tray context menu item: "Caffeine: OFF" / "Caffeine: ON" (toggled)
+  - When ON, optionally swap the tray icon to indicate active state
+  - Tooltip on the tray icon updates to reflect caffeine state
+- State persistence: optionally save last state to user settings so it
+  restores on next app launch (System.Configuration or a simple JSON file).
+
+--------------------------------------------------------------------------------
+UI DESIGN
+--------------------------------------------------------------------------------
+
+## Tray Icon
+- Always present in the system notification area (bottom-right taskbar)
+- Icon changes when Caffeine is active (different icon color/indicator)
+- Tooltip shows a compact summary: "CPU: 34% | 62°C | Battery: 87%"
+
+## Popup Panel (click on tray icon)
+- A small borderless Form that appears above the tray icon
+- Closes when clicking outside (deactivated event)
+- Layout (top to bottom):
+    ┌──────────────────────────┐
+    │  CPU Usage:    34%  ████░│
+    │  CPU Temp:     62°C      │
+    │  GPU Temp:     71°C      │
+    │  Battery:      87% ⚡    │
+    ├──────────────────────────┤
+    │  Power Plan: [Balanced ▾]│
+    │  Caffeine:   [OFF]  [ON] │
+    └──────────────────────────┘
+- Colors: dark background (e.g. #1E1E2E), light text, accent highlights
+- Font: Segoe UI 9pt or Consolas 9pt for a clean, minimal look
+
+## Tray Context Menu (right-click on tray icon)
+- Open Panel
+- ──────────
+- Power Plans >
+  - ✓ Balanced
+  -   High Performance
+  -   Power Saver
+- ──────────
+- Caffeine: OFF  (click to toggle)
+- ──────────
+- Start with Windows  (toggle)
+- About
+- Exit
+
+--------------------------------------------------------------------------------
+ELEVATION / ADMIN RIGHTS
+--------------------------------------------------------------------------------
+
+The app must run as Administrator because LibreHardwareMonitor needs kernel
+driver access to read hardware sensors.
+
+Steps to configure:
+1. Add an App.manifest file to the project.
+2. Set <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
+3. This causes Windows to show a UAC prompt on first launch.
+4. Once elevated, all features work without further prompts.
+
+Alternative (advanced): Run a small background Windows Service elevated that
+exposes sensor data over a named pipe, and keep the tray UI itself
+non-elevated. This avoids UAC on every launch but adds significant complexity.
+Recommended only if UAC prompt is unacceptable.
+
+--------------------------------------------------------------------------------
+TIMER & UPDATE LOOP
+--------------------------------------------------------------------------------
+
+Single System.Timers.Timer at 1000ms interval.
+On each tick (runs on a background thread — marshal UI updates to UI thread):
+  1. CpuUsageMonitor.GetUsage()           → CPU %
+  2. HardwareMonitor.GetCpuTemperature()  → CPU °C
+  3. HardwareMonitor.GetGpuTemperature()  → GPU °C (if available)
+  4. BatteryMonitor.GetStatus()           → Battery % + AC status
+  5. Update tray icon tooltip text
+  6. If popup panel is visible, update its labels
+
+Use Control.Invoke() or BeginInvoke() when updating WinForms controls from the
+timer callback thread.
+
+--------------------------------------------------------------------------------
+PERSISTENCE & SETTINGS
+--------------------------------------------------------------------------------
+
+Store user preferences in a local JSON file or app.config:
+  - Last caffeine state (on/off)
+  - Start with Windows preference
+  - Preferred popup panel position (auto-detect near tray or fixed)
+
+Start with Windows:
+  - Add/remove a registry key at:
+    HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
+  - Key name: "SystemMonitorApp"
+  - Value: full path to the .exe
+
+--------------------------------------------------------------------------------
+P/INVOKE SIGNATURES (NativeMethods.cs)
+--------------------------------------------------------------------------------
+
+// Caffeine
+[DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+static extern EXECUTION_STATE SetThreadExecutionState(EXECUTION_STATE esFlags);
+
+[Flags]
+enum EXECUTION_STATE : uint {
+    ES_AWAYMODE_REQUIRED = 0x00000040,
+    ES_CONTINUOUS        = 0x80000000,
+    ES_DISPLAY_REQUIRED  = 0x00000002,
+    ES_SYSTEM_REQUIRED   = 0x00000001
+}
+
+// Power Plan Activation
+[DllImport("powrprof.dll", EntryPoint = "PowerSetActiveScheme")]
+static extern uint PowerSetActiveScheme(IntPtr UserRootPowerKey, ref Guid SchemeGuid);
+
+[DllImport("powrprof.dll", EntryPoint = "PowerGetActiveScheme")]
+static extern uint PowerGetActiveScheme(IntPtr UserRootPowerKey, out IntPtr ActivePolicyGuid);
+
+--------------------------------------------------------------------------------
+LIBREHARDWAREMONITOR USAGE PATTERN
+--------------------------------------------------------------------------------
+
+using LibreHardwareMonitor.Hardware;
+
+public class HardwareMonitor {
+    private Computer _computer;
+
+    public void Initialize() {
+        _computer = new Computer {
+            IsCpuEnabled = true,
+            IsGpuEnabled = true,
+        };
+        _computer.Open();
+    }
+
+    public float? GetCpuTemperature() {
+        foreach (var hw in _computer.Hardware) {
+            if (hw.HardwareType == HardwareType.Cpu) {
+                hw.Update();
+                foreach (var sensor in hw.Sensors) {
+                    if (sensor.SensorType == SensorType.Temperature
+                        && sensor.Name.Contains("Package")) {
+                        return sensor.Value;
+                    }
+                }
+            }
+        }
+        return null; // sensor not available
+    }
+
+    public float? GetGpuTemperature() {
+        foreach (var hw in _computer.Hardware) {
+            if (hw.HardwareType == HardwareType.GpuNvidia
+                || hw.HardwareType == HardwareType.GpuAmd
+                || hw.HardwareType == HardwareType.GpuIntel) {
+                hw.Update();
+                foreach (var sensor in hw.Sensors) {
+                    if (sensor.SensorType == SensorType.Temperature) {
+                        return sensor.Value;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    public void Shutdown() {
+        _computer?.Close();
+    }
+}
+
+--------------------------------------------------------------------------------
+BUILD & DISTRIBUTION
+--------------------------------------------------------------------------------
+
+- Target: Windows 10 / 11
+- Output: Single .exe (use PublishSingleFile in .NET 8, or standard build
+  for .NET Framework)
+- For .NET 8: set <RuntimeIdentifier>win-x64</RuntimeIdentifier> and
+  <PublishSingleFile>true</PublishSingleFile> in the .csproj for a portable
+  single-file build.
+- No installer strictly required — app can run from any folder.
+- Include the LibreHardwareMonitorLib DLL alongside the exe if not
+  publishing as single file.
+
+--------------------------------------------------------------------------------
+PHASED DEVELOPMENT PLAN
+--------------------------------------------------------------------------------
+
+PHASE 1 — Core Shell (Weekend 1)
+  [ ] Create WinForms project, no startup form
+  [ ] NotifyIcon setup with placeholder icon and tooltip
+  [ ] Timer loop running at 1s
+  [ ] CPU Usage via PerformanceCounter displaying in tooltip
+  [ ] Tray context menu with Exit
+
+PHASE 2 — Hardware Sensors (Weekend 2)
+  [ ] Add LibreHardwareMonitorLib NuGet
+  [ ] App.manifest for requireAdministrator
+  [ ] CPU temperature reading and display
+  [ ] GPU temperature reading with null-safe fallback
+  [ ] Battery level and status with desktop detection
+
+PHASE 3 — Controls (Weekend 3)
+  [ ] Power plan enumeration via WMI
+  [ ] Power plan switching via P/Invoke
+  [ ] Caffeine toggle via SetThreadExecutionState
+  [ ] Tray icon swap when caffeine is active
+
+PHASE 4 — UI Polish (Weekend 4)
+  [ ] Borderless popup panel with all metrics
+  [ ] Dark theme styling
+  [ ] Progress bar for CPU usage in popup
+  [ ] Popup positioning above tray icon
+  [ ] Start with Windows registry toggle
+  [ ] Settings persistence (JSON file)
+  [ ] Proper cleanup on exit (LHM shutdown, timer stop)
+
+--------------------------------------------------------------------------------
+KNOWN LIMITATIONS & EDGE CASES
+--------------------------------------------------------------------------------
+
+- Some laptop OEMs block hardware sensor access even with admin rights.
+  LibreHardwareMonitor may return null for temps on these machines.
+  Always handle null sensor values gracefully.
+
+- On multi-GPU systems, GetGpuTemperature() will return the first GPU found.
+  Extend later to enumerate all GPUs if needed.
+
+- Power plan WMI queries require the "root\cimv2\power" WMI namespace.
+  This is available on Windows 8+ and all Windows 10/11 versions.
+
+- SetThreadExecutionState only works while the thread is running.
+  If the app crashes or is killed, Windows will eventually resume normal
+  sleep behavior. This is safe and expected behavior.
+
+- Caffeine state is not visible to other apps — it won't disable Task Manager
+  sleep timers, only the Windows session sleep/display timeout.
+
+--------------------------------------------------------------------------------
+END OF PLAN
+================================================================================
