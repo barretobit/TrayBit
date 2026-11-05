@@ -7,21 +7,12 @@ internal sealed class PopupPanel : Form
     private static readonly Color MainText = Color.FromArgb(205, 214, 244);
     private static readonly Color DimText = Color.FromArgb(148, 152, 175);
 
-    private readonly Label _cpuValue;
-    private readonly ProgressBar _cpuBar;
-    private readonly Label _tempValue;
-    private readonly Label _gpuName;
-    private readonly Label _gpuValue;
-    private readonly Label _batteryName;
-    private readonly Label _batteryValue;
+    private readonly Label _temperatureValue;
     private readonly ComboBox _planCombo;
-    private readonly Button _caffeineButton;
-
     private readonly List<Guid> _planIds = [];
     private bool _syncing;
 
     public event Action<Guid>? PlanActivated;
-    public event EventHandler? CaffeineToggleRequested;
 
     public PopupPanel()
     {
@@ -31,32 +22,20 @@ internal sealed class PopupPanel : Form
         TopMost = true;
         BackColor = PanelBack;
         Font = new Font("Segoe UI", 9f);
-        ClientSize = new Size(276, 236);
+        ClientSize = new Size(276, 112);
 
-        _cpuValue = CreateValueLabel(new Point(118, 14));
-        _tempValue = CreateValueLabel(new Point(118, 42));
-        _gpuName = CreateNameLabel("GPU Temp:", new Point(16, 70));
-        _gpuValue = CreateValueLabel(new Point(118, 70));
-        _batteryName = CreateNameLabel("Battery:", new Point(16, 98));
-        _batteryValue = CreateValueLabel(new Point(118, 98));
-
-        _cpuBar = new ProgressBar
+        _temperatureValue = new Label
         {
-            Location = new Point(16, 126),
-            Size = new Size(244, 10)
-        };
-
-        var separator = new Label
-        {
-            Location = new Point(0, 148),
-            Size = new Size(276, 1),
-            BackColor = ControlBack
+            Location = new Point(142, 18),
+            AutoSize = true,
+            ForeColor = MainText,
+            Text = "N/A"
         };
 
         _planCombo = new ComboBox
         {
-            Location = new Point(118, 158),
-            Size = new Size(142, 24),
+            Location = new Point(16, 62),
+            Size = new Size(244, 26),
             DropDownStyle = ComboBoxStyle.DropDownList,
             FlatStyle = FlatStyle.Flat,
             BackColor = ControlBack,
@@ -64,32 +43,22 @@ internal sealed class PopupPanel : Form
         };
         _planCombo.SelectedIndexChanged += OnPlanSelected;
 
-        _caffeineButton = new Button
+        Controls.Add(new Label
         {
-            Location = new Point(118, 190),
-            Size = new Size(142, 28),
-            FlatStyle = FlatStyle.Flat,
-            BackColor = ControlBack,
-            ForeColor = MainText,
-            Text = "OFF"
-        };
-        _caffeineButton.FlatAppearance.BorderSize = 0;
-        _caffeineButton.Click += (_, _) => CaffeineToggleRequested?.Invoke(this, EventArgs.Empty);
-
-        Controls.Add(CreateNameLabel("CPU Usage:", new Point(16, 14)));
-        Controls.Add(_cpuValue);
-        Controls.Add(CreateNameLabel("Temp:", new Point(16, 42)));
-        Controls.Add(_tempValue);
-        Controls.Add(_gpuName);
-        Controls.Add(_gpuValue);
-        Controls.Add(_batteryName);
-        Controls.Add(_batteryValue);
-        Controls.Add(_cpuBar);
-        Controls.Add(separator);
-        Controls.Add(CreateNameLabel("Power Plan:", new Point(16, 162)));
+            Text = "Temperature:",
+            Location = new Point(16, 18),
+            AutoSize = true,
+            ForeColor = DimText
+        });
+        Controls.Add(_temperatureValue);
+        Controls.Add(new Label
+        {
+            Text = "Energy profile:",
+            Location = new Point(16, 42),
+            AutoSize = true,
+            ForeColor = DimText
+        });
         Controls.Add(_planCombo);
-        Controls.Add(CreateNameLabel("Caffeine:", new Point(16, 194)));
-        Controls.Add(_caffeineButton);
 
         Deactivate += (_, _) => Hide();
     }
@@ -109,7 +78,6 @@ internal sealed class PopupPanel : Form
     public void SetPlans(IReadOnlyList<(Core.PowerPlan Plan, bool Active)> plans, Guid? activeId)
     {
         _syncing = true;
-
         _planCombo.BeginUpdate();
 
         try
@@ -124,6 +92,7 @@ internal sealed class PopupPanel : Form
             }
 
             _planCombo.SelectedIndex = activeId is { } id ? _planIds.IndexOf(id) : -1;
+            _planCombo.Enabled = plans.Count > 0;
         }
         finally
         {
@@ -132,53 +101,12 @@ internal sealed class PopupPanel : Form
         }
     }
 
-    public void SetCaffeine(bool on)
-    {
-        _caffeineButton.Text = on ? "ON" : "OFF";
-        _caffeineButton.BackColor = on ? Color.FromArgb(250, 179, 135) : ControlBack;
-        _caffeineButton.ForeColor = on ? PanelBack : MainText;
-    }
-
-    public void UpdateMetrics(float cpuPercent, float? mainTemp, float? gpuTemp, Core.BatteryStatus? battery)
-    {
-        _cpuValue.Text = $"{cpuPercent:F0}%";
-        _cpuBar.Value = Math.Clamp((int)MathF.Round(cpuPercent), 0, 100);
-        _tempValue.Text = mainTemp is { } temp ? $"{temp:F0}°C" : "N/A";
-
-        bool hasGpu = gpuTemp is not null;
-        _gpuName.Visible = hasGpu;
-        _gpuValue.Visible = hasGpu;
-        if (gpuTemp is { } gpu)
-            _gpuValue.Text = $"{gpu:F0}°C";
-
-        bool hasBattery = battery is not null;
-        _batteryName.Visible = hasBattery;
-        _batteryValue.Visible = hasBattery;
-        if (battery is { } b)
-            _batteryValue.Text = b.Charging ? $"{b.Percent}% (Charging)" : $"{b.Percent}%";
-    }
+    public void SetTemperature(float? temperature) =>
+        _temperatureValue.Text = temperature is { } value ? $"{value:F0}°C" : "N/A";
 
     private void OnPlanSelected(object? sender, EventArgs e)
     {
         if (!_syncing && _planCombo.SelectedIndex >= 0)
             PlanActivated?.Invoke(_planIds[_planCombo.SelectedIndex]);
     }
-
-    private static Label CreateNameLabel(string text, Point location) =>
-        new()
-        {
-            Text = text,
-            Location = location,
-            AutoSize = true,
-            ForeColor = DimText
-        };
-
-    private static Label CreateValueLabel(Point location) =>
-        new()
-        {
-            Location = location,
-            AutoSize = true,
-            ForeColor = MainText,
-            Text = "-"
-        };
 }

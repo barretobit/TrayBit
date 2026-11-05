@@ -19,7 +19,6 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Resources\icon_normal.ico" />
-    <EmbeddedResource Include="Resources\icon_caffeine.ico" />
   </ItemGroup>
 
 </Project>
