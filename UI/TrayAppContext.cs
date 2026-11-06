@@ -6,18 +6,15 @@ internal sealed class TrayAppContext : ApplicationContext
     private readonly Core.HardwareMonitor _hardware = new();
     private readonly Core.PowerPlanManager _powerPlans = new();
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 1000 };
-    private readonly TaskbarStatusPanel _taskbarStatus = new();
 
     private List<Core.PowerPlan>? _planCache;
     private Guid? _activePlanId;
     private float? _lastTemp;
-    private PopupPanel? _popup;
 
     public TrayAppContext()
     {
         _tray.ExitRequested += (_, _) => ExitThread();
         _tray.PowerPlanActivated += OnPowerPlanActivated;
-        _tray.OpenPanelRequested += OnOpenPanelRequested;
 
         LoadPowerPlans();
         Poll();
@@ -54,8 +51,6 @@ internal sealed class TrayAppContext : ApplicationContext
             _tray.SetPowerPlansUnavailable();
         else
             _tray.SetPowerPlans(display);
-
-        _popup?.SetPlans(display, _activePlanId);
     }
 
     private void OnPowerPlanActivated(object? sender, Guid planId)
@@ -68,29 +63,14 @@ internal sealed class TrayAppContext : ApplicationContext
         UpdateTrayStatus();
     }
 
-    private void OnOpenPanelRequested(Point anchor)
-    {
-        if (_popup is null)
-        {
-            _popup = new PopupPanel();
-            _popup.PlanActivated += id => OnPowerPlanActivated(this, id);
-        }
-
-        PublishPowerPlans();
-        _popup.SetTemperature(_lastTemp);
-        _popup.ShowAt(anchor);
-    }
-
     private void Poll()
     {
         _hardware.Poll();
 
-        float? temperature = _hardware.CpuTemperature ?? _hardware.SocTemperature;
-        _lastTemp = temperature;
+        _lastTemp = _hardware.CpuTemperature ?? _hardware.SocTemperature;
 
         DetectExternalPowerPlanChange();
         UpdateTrayStatus();
-        _popup?.SetTemperature(temperature);
     }
 
     private void UpdateTrayStatus()
@@ -99,7 +79,6 @@ internal sealed class TrayAppContext : ApplicationContext
         string temperature = _lastTemp is { } value ? $"{value:F0}°C" : "N/A";
         string status = $"{temperature} | {profile}";
         _tray.SetStatus(status);
-        _taskbarStatus.UpdateStatus(status);
     }
 
     private void DetectExternalPowerPlanChange()
@@ -119,8 +98,6 @@ internal sealed class TrayAppContext : ApplicationContext
         _timer.Stop();
         _timer.Dispose();
         _hardware.Dispose();
-        _popup?.Dispose();
-        _taskbarStatus.Dispose();
         _tray.Dispose();
         base.ExitThreadCore();
     }

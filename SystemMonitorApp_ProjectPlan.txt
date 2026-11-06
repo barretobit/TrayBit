@@ -3,22 +3,16 @@ TrayBit - Current Scope
 
 TrayBit is a lightweight Windows system tray app with two features:
 
-1. Show the system temperature and refresh it every second.
-2. Switch between available Windows energy profiles.
+1. Show the CPU temperature and refresh it every second.
+2. Display the selected Windows energy profile.
 
 Temperature is read through LibreHardwareMonitor. TrayBit displays the CPU
-temperature when available, falling back to an integrated GPU/SoC temperature.
-The tray tooltip and a readable taskbar label near the left side of the taskbar
-show the temperature and active energy profile (for example,
-"29°C | Balanced"). The tray icon remains a standard system-sized icon. If no
-supported sensor or active profile is available, the UI displays "N/A" or
-"Unknown", respectively.
+temperature only. The tray tooltip shows the temperature and active energy
+profile (for example, "29°C | Balanced"). If no CPU sensor or active profile
+is available, the UI displays "N/A" or "Unknown", respectively.
 
-The tray tooltip displays the latest temperature. Left-clicking the tray icon
-opens a compact panel with the temperature and a selector for available energy
-profiles. Profiles are discovered from Windows, so all installed profiles are
-available rather than only a fixed list of three. The tray context menu also
-provides direct profile selection, About, and Exit.
+Profiles are discovered from Windows, so all installed profiles are available.
+The tray context menu provides profile selection and Exit.
 
 Technology:
 - C# / WinForms on .NET 10 for Windows

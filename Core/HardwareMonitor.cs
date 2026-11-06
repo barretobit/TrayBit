@@ -7,7 +7,6 @@ internal sealed class HardwareMonitor : IDisposable
     private readonly Computer _computer;
     private float? _cpuTemperature;
     private float? _socTemperature;
-    private float? _discreteGpuTemperature;
 
     public HardwareMonitor()
     {
@@ -23,13 +22,10 @@ internal sealed class HardwareMonitor : IDisposable
 
     public float? SocTemperature => _socTemperature;
 
-    public float? DiscreteGpuTemperature => _discreteGpuTemperature;
-
     public void Poll()
     {
         _cpuTemperature = null;
         _socTemperature = null;
-        _discreteGpuTemperature = null;
 
         foreach (IHardware hardware in _computer.Hardware)
         {
@@ -38,11 +34,6 @@ internal sealed class HardwareMonitor : IDisposable
                 case HardwareType.Cpu:
                     hardware.Update();
                     _cpuTemperature = FindCpuTemperature(hardware);
-                    break;
-
-                case HardwareType.GpuNvidia:
-                    hardware.Update();
-                    _discreteGpuTemperature ??= FindGpuTemperature(hardware);
                     break;
 
                 case HardwareType.GpuAmd or HardwareType.GpuIntel:
