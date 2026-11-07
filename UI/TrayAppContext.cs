@@ -6,6 +6,7 @@ internal sealed class TrayAppContext : ApplicationContext
     private readonly Core.HardwareMonitor _hardware = new();
     private readonly Core.PowerPlanManager _powerPlans = new();
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 1000 };
+    private readonly TaskbarStatusPanel _taskbarStatus = new();
 
     private List<Core.PowerPlan>? _planCache;
     private Guid? _activePlanId;
@@ -79,6 +80,7 @@ internal sealed class TrayAppContext : ApplicationContext
         string temperature = _lastTemp is { } value ? $"{value:F0}°C" : "N/A";
         string status = $"{temperature} | {profile}";
         _tray.SetStatus(status);
+        _taskbarStatus.UpdateStatus(status);
     }
 
     private void DetectExternalPowerPlanChange()
@@ -98,6 +100,7 @@ internal sealed class TrayAppContext : ApplicationContext
         _timer.Stop();
         _timer.Dispose();
         _hardware.Dispose();
+        _taskbarStatus.Dispose();
         _tray.Dispose();
         base.ExitThreadCore();
     }
